@@ -1,143 +1,147 @@
---// Boxing Combat Controller (Mobile + PC)
---// LocalScript
-
+--// SERVICES
 local Players = game:GetService("Players")
-local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local player = Players.LocalPlayer
-local character = player.Character or player.CharacterAdded:Wait()
-local humanoid = character:WaitForChild("Humanoid")
+--// PLAYER
+local LocalPlayer = Players.LocalPlayer
+local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
 
--- CONFIG
-local PUNCH_DURATION = 0.8       -- duração do soco
-local BLOCK_DELAY = 0.6          -- tempo mínimo pra block cancelar soco
-local COMBAT_ENABLED = false
+--// REMOTES
+local Remotes = ReplicatedStorage:WaitForChild("CombatRemotesRemotes")
+local BlockEvent = Remotes:WaitForChild("BlockEvent")
+local DodgeEvent = Remotes:WaitForChild("DodgeEvent")
 
--- STATE MACHINE
+--// CONFIG
+local DEFENSE_ENABLED = false
+
+local BLOCK_REGEN_TIME = 4
+local MIN_STAMINA_DODGE = 30
+local SAFE_DODGE_DELAY = 0.15
+
+--// STATE
 local State = {
-	Idle = "Idle",
-	Punching = "Punching",
-	Blocking = "Blocking"
+	blocking = false,
+	blockBroken = false,
+	lastHit = tick(),
+	lastHealth = 100
 }
 
-local currentState = State.Idle
-local punchStartTime = 0
+--// UI (mobile-friendly)
+local gui = Instance.new("ScreenGui")
+gui.Name = "DefenseToggleGui"
+gui.ResetOnSpawn = false
+gui.Parent = LocalPlayer:WaitForChild("PlayerGui")
 
---// GUI
-local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "CombatGui"
-screenGui.Parent = player:WaitForChild("PlayerGui")
+local button = Instance.new("TextButton")
+button.Size = UDim2.fromScale(0.22, 0.08)
+button.Position = UDim2.fromScale(0.39, 0.85)
+button.Text = "DEFESA OFF"
+button.BackgroundColor3 = Color3.fromRGB(180, 60, 60)
+button.TextScaled = true
+button.Parent = gui
 
-local toggleButton = Instance.new("TextButton")
-toggleButton.Size = UDim2.fromScale(0.25, 0.08)
-toggleButton.Position = UDim2.fromScale(0.05, 0.85)
-toggleButton.Text = "COMBAT: OFF"
-toggleButton.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-toggleButton.TextColor3 = Color3.fromRGB(255,255,255)
-toggleButton.TextScaled = true
-toggleButton.Parent = screenGui
-toggleButton.BorderSizePixel = 0
-toggleButton.AutoButtonColor = true
+button.Activated:Connect(function()
+	DEFENSE_ENABLED = not DEFENSE_ENABLED
+	button.Text = DEFENSE_ENABLED and "DEFESA ON" or "DEFESA OFF"
+	button.BackgroundColor3 = DEFENSE_ENABLED
+		and Color3.fromRGB(60, 180, 90)
+		or Color3.fromRGB(180, 60, 60)
 
---// FUNÇÕES DE EQUIPAMENTO
-local function equipGloves()
-	local gloves = character:FindFirstChild("Gloves")
-	if gloves and gloves:IsA("Tool") then
-		humanoid:EquipTool(gloves)
-	end
-end
-
-local function unequipTools()
-	humanoid:UnequipTools()
-end
-
---// STATE CONTROL
-local function setState(newState)
-	currentState = newState
-end
-
---// COMBATE
-local function punch()
-	if not COMBAT_ENABLED then return end
-	if currentState ~= State.Idle then return end
-
-	setState(State.Punching)
-	punchStartTime = tick()
-
-	print("Soco iniciado")
-
-	task.delay(PUNCH_DURATION, function()
-		if currentState == State.Punching then
-			setState(State.Idle)
-			print("Soco finalizado")
-		end
-	end)
-end
-
-local function block()
-	if not COMBAT_ENABLED then return end
-
-	if currentState == State.Punching then
-		if tick() - punchStartTime < BLOCK_DELAY then
-			print("Block ignorado (soco já em execução)")
-			return
-		end
-	end
-
-	setState(State.Blocking)
-	print("Block ativo")
-
-	task.delay(0.7, function()
-		if currentState == State.Blocking then
-			setState(State.Idle)
-			print("Block finalizado")
-		end
-	end)
-end
-
---// INPUT (PC)
-UserInputService.InputBegan:Connect(function(input, gp)
-	if gp then return end
-
-	if input.KeyCode == Enum.KeyCode.F then
-		punch()
-	elseif input.KeyCode == Enum.KeyCode.G then
-		block()
+	if DEFENSE_ENABLED then
+		BlockEvent:FireServer("blockStart")
+		State.blocking = true
+	else
+		BlockEvent:FireServer("unblocking")
+		State.blocking = false
 	end
 end)
 
---// BOTÕES MOBILE
-local punchBtn = Instance.new("TextButton")
-punchBtn.Size = UDim2.fromScale(0.2, 0.08)
-punchBtn.Position = UDim2.fromScale(0.75, 0.8)
-punchBtn.Text = "SOCO"
-punchBtn.TextScaled = true
-punchBtn.Parent = screenGui
+--// HELPERS
+local function GetHealth()
+	local label =
+		Character.HumanoidRootPart
+		[LocalPlayer.Name]
+		.CenterContainer
+		.HealthStaminaContainer
+		.HealthBarContainer
+		.TextLabel
 
-local blockBtn = Instance.new("TextButton")
-blockBtn.Size = UDim2.fromScale(0.2, 0.08)
-blockBtn.Position = UDim2.fromScale(0.75, 0.9)
-blockBtn.Text = "BLOCK"
-blockBtn.TextScaled = true
-blockBtn.Parent = screenGui
+	return tonumber(label.Text)
+end
 
-punchBtn.MouseButton1Down:Connect(punch)
-blockBtn.MouseButton1Down:Connect(block)
+local function GetStamina()
+	local label =
+		Character.HumanoidRootPart
+		[LocalPlayer.Name]
+		.CenterContainer
+		.HealthStaminaContainer
+		.StaminaBarContainer
+		.TextLabel
 
---// TOGGLE COMBATE
-toggleButton.MouseButton1Down:Connect(function()
-	COMBAT_ENABLED = not COMBAT_ENABLED
+	return tonumber(label.Text)
+end
 
-	if COMBAT_ENABLED then
-		toggleButton.Text = "COMBAT: ON"
-		toggleButton.BackgroundColor3 = Color3.fromRGB(120, 40, 40)
-		equipGloves()
-		setState(State.Idle)
+local function GetBlock()
+	return tonumber(
+		Character.HumanoidRootPart
+		.BlockHealthVisualizerV2
+		.MainContainer
+		.HealthNumber
+		.ContentText
+	)
+end
+
+--// CORE LOOP
+RunService.RenderStepped:Connect(function()
+	if not DEFENSE_ENABLED then return end
+
+	-- Shield quebrou
+	if GetBlock() <= 0 then
+		if not State.blockBroken then
+			State.blockBroken = true
+			State.lastHit = tick()
+			BlockEvent:FireServer("unblocking")
+			State.blocking = false
+		end
 	else
-		toggleButton.Text = "COMBAT: OFF"
-		toggleButton.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-		unequipTools()
-		setState(State.Idle)
+		-- Shield voltou
+		if State.blockBroken and tick() - State.lastHit >= BLOCK_REGEN_TIME then
+			State.blockBroken = false
+			BlockEvent:FireServer("blockStart")
+			State.blocking = true
+		end
 	end
+
+	-- Garantir block ativo
+	if not State.blockBroken and not State.blocking then
+		BlockEvent:FireServer("blockStart")
+		State.blocking = true
+	end
+end)
+
+--// DODGE INTELIGENTE (baseado em dano real)
+Character.HumanoidRootPart
+	[LocalPlayer.Name]
+	.CenterContainer
+	.HealthStaminaContainer
+	.HealthBarContainer
+	.TextLabel
+	:GetPropertyChangedSignal("Text")
+	:Connect(function()
+
+	if not DEFENSE_ENABLED then return end
+
+	local currentHealth = GetHealth()
+
+	if currentHealth < State.lastHealth then
+		State.lastHit = tick()
+
+		if GetStamina() >= MIN_STAMINA_DODGE and not State.blockBroken then
+			task.wait(SAFE_DODGE_DELAY)
+			DodgeEvent:FireServer("back")
+		end
+	end
+
+	State.lastHealth = currentHealth
 end)
