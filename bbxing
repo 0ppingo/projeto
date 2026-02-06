@@ -24,7 +24,11 @@ local State = {
 	blocking = false,
 	blockBroken = false,
 	lastHit = tick(),
-	lastHealth = 100
+	lastHealth = 100,
+
+	-- >>> NOVO (shield tracking)
+	lastBlock = nil,
+	lastBlockTime = tick()
 }
 
 --// UI (mobile-friendly)
@@ -96,8 +100,32 @@ end
 RunService.RenderStepped:Connect(function()
 	if not DEFENSE_ENABLED then return end
 
+	local currentBlock = GetBlock()
+
+	-- Inicializar valores
+	if State.lastBlock == nil then
+		State.lastBlock = currentBlock
+		State.lastBlockTime = tick()
+	end
+
+	-- >>> NOVO: detectar pressão no shield
+	if currentBlock < State.lastBlock then
+		local delta = State.lastBlock - currentBlock
+		local dt = tick() - State.lastBlockTime
+
+		if delta >= 2 and dt <= 0.3 then
+			if GetStamina() >= MIN_STAMINA_DODGE and not State.blockBroken then
+				DodgeEvent:FireServer("back")
+			end
+		end
+
+		State.lastBlockTime = tick()
+	end
+
+	State.lastBlock = currentBlock
+
 	-- Shield quebrou
-	if GetBlock() <= 0 then
+	if currentBlock <= 0 then
 		if not State.blockBroken then
 			State.blockBroken = true
 			State.lastHit = tick()
@@ -120,7 +148,7 @@ RunService.RenderStepped:Connect(function()
 	end
 end)
 
---// DODGE INTELIGENTE (baseado em dano real)
+--// DODGE POR DANO (mantido)
 Character.HumanoidRootPart
 	[LocalPlayer.Name]
 	.CenterContainer
