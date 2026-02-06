@@ -1,0 +1,143 @@
+--// Boxing Combat Controller (Mobile + PC)
+--// LocalScript
+
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+
+-- CONFIG
+local PUNCH_DURATION = 0.8       -- duração do soco
+local BLOCK_DELAY = 0.6          -- tempo mínimo pra block cancelar soco
+local COMBAT_ENABLED = false
+
+-- STATE MACHINE
+local State = {
+	Idle = "Idle",
+	Punching = "Punching",
+	Blocking = "Blocking"
+}
+
+local currentState = State.Idle
+local punchStartTime = 0
+
+--// GUI
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "CombatGui"
+screenGui.Parent = player:WaitForChild("PlayerGui")
+
+local toggleButton = Instance.new("TextButton")
+toggleButton.Size = UDim2.fromScale(0.25, 0.08)
+toggleButton.Position = UDim2.fromScale(0.05, 0.85)
+toggleButton.Text = "COMBAT: OFF"
+toggleButton.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+toggleButton.TextColor3 = Color3.fromRGB(255,255,255)
+toggleButton.TextScaled = true
+toggleButton.Parent = screenGui
+toggleButton.BorderSizePixel = 0
+toggleButton.AutoButtonColor = true
+
+--// FUNÇÕES DE EQUIPAMENTO
+local function equipGloves()
+	local gloves = character:FindFirstChild("Gloves")
+	if gloves and gloves:IsA("Tool") then
+		humanoid:EquipTool(gloves)
+	end
+end
+
+local function unequipTools()
+	humanoid:UnequipTools()
+end
+
+--// STATE CONTROL
+local function setState(newState)
+	currentState = newState
+end
+
+--// COMBATE
+local function punch()
+	if not COMBAT_ENABLED then return end
+	if currentState ~= State.Idle then return end
+
+	setState(State.Punching)
+	punchStartTime = tick()
+
+	print("Soco iniciado")
+
+	task.delay(PUNCH_DURATION, function()
+		if currentState == State.Punching then
+			setState(State.Idle)
+			print("Soco finalizado")
+		end
+	end)
+end
+
+local function block()
+	if not COMBAT_ENABLED then return end
+
+	if currentState == State.Punching then
+		if tick() - punchStartTime < BLOCK_DELAY then
+			print("Block ignorado (soco já em execução)")
+			return
+		end
+	end
+
+	setState(State.Blocking)
+	print("Block ativo")
+
+	task.delay(0.7, function()
+		if currentState == State.Blocking then
+			setState(State.Idle)
+			print("Block finalizado")
+		end
+	end)
+end
+
+--// INPUT (PC)
+UserInputService.InputBegan:Connect(function(input, gp)
+	if gp then return end
+
+	if input.KeyCode == Enum.KeyCode.F then
+		punch()
+	elseif input.KeyCode == Enum.KeyCode.G then
+		block()
+	end
+end)
+
+--// BOTÕES MOBILE
+local punchBtn = Instance.new("TextButton")
+punchBtn.Size = UDim2.fromScale(0.2, 0.08)
+punchBtn.Position = UDim2.fromScale(0.75, 0.8)
+punchBtn.Text = "SOCO"
+punchBtn.TextScaled = true
+punchBtn.Parent = screenGui
+
+local blockBtn = Instance.new("TextButton")
+blockBtn.Size = UDim2.fromScale(0.2, 0.08)
+blockBtn.Position = UDim2.fromScale(0.75, 0.9)
+blockBtn.Text = "BLOCK"
+blockBtn.TextScaled = true
+blockBtn.Parent = screenGui
+
+punchBtn.MouseButton1Down:Connect(punch)
+blockBtn.MouseButton1Down:Connect(block)
+
+--// TOGGLE COMBATE
+toggleButton.MouseButton1Down:Connect(function()
+	COMBAT_ENABLED = not COMBAT_ENABLED
+
+	if COMBAT_ENABLED then
+		toggleButton.Text = "COMBAT: ON"
+		toggleButton.BackgroundColor3 = Color3.fromRGB(120, 40, 40)
+		equipGloves()
+		setState(State.Idle)
+	else
+		toggleButton.Text = "COMBAT: OFF"
+		toggleButton.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+		unequipTools()
+		setState(State.Idle)
+	end
+end)
